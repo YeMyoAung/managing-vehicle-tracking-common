@@ -6,6 +6,7 @@ import (
     "crypto/hmac"
     "errors"
     "net/http"
+    "time"
 
     "github.com/goccy/go-json"
 )
@@ -13,6 +14,29 @@ import (
 var (
     ErrSignatureMismatch = errors.New("signature mismatch")
 )
+
+type RequestLogger interface {
+    Println(v ...any)
+}
+
+func LoggingMiddleware(
+    logger RequestLogger,
+) func(http.Handler) http.Handler {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(
+            func(w http.ResponseWriter, r *http.Request) {
+                logger.Println(
+                    time.Now(),
+                    r.Method,
+                    r.URL.Path,
+                    r.RemoteAddr,
+                    r.Header,
+                )
+                next.ServeHTTP(w, r)
+            },
+        )
+    }
+}
 
 // VerifySignatureMiddleware verifies the signature of the request
 func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Handler {
