@@ -15,6 +15,43 @@ var (
     ErrSignatureMismatch = errors.New("signature mismatch")
 )
 
+type CorsConfig struct {
+    AllowedOrigins string
+    AllowedMethods string
+    AllowedHeaders string
+}
+
+func CorsMiddleware(
+    config *CorsConfig,
+) func(http.Handler) http.Handler {
+    if config == nil {
+        config = &CorsConfig{
+            AllowedOrigins: "*",
+            AllowedMethods: "GET, POST, PUT, DELETE, OPTIONS",
+            AllowedHeaders: "*",
+        }
+    }
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(
+            func(w http.ResponseWriter, r *http.Request) {
+                // Allow all origins for simplicity
+                w.Header().Set("Access-Control-Allow-Origin", config.AllowedOrigins)
+                w.Header().Set("Access-Control-Allow-Methods", config.AllowedMethods)
+                w.Header().Set("Access-Control-Allow-Headers", config.AllowedHeaders)
+
+                // If it's a preflight request, return 200 OK
+                if r.Method == http.MethodOptions {
+                    w.WriteHeader(http.StatusOK)
+                    return
+                }
+
+                // Call the next handler
+                next.ServeHTTP(w, r)
+            },
+        )
+    }
+}
+
 type RequestLogger interface {
     Println(v ...any)
 }
