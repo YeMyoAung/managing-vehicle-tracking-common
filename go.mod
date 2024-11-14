@@ -7,6 +7,7 @@ require (
 	github.com/go-playground/validator/v10 v10.22.1
 	github.com/goccy/go-json v0.10.3
 	github.com/joho/godotenv v1.5.1
+	github.com/streadway/amqp v1.1.0
 	golang.org/x/crypto v0.19.0
 )
 
