@@ -38,6 +38,7 @@ func (t *JwtMaker) isValidSecretKey(secretKey string) error {
     return nil
 }
 
+// CreateToken creates a new JWT token
 func (t *JwtMaker) CreateToken(payload PayloadInterface, secretKey string) (string, error) {
     if err := t.isValidSecretKey(secretKey); err != nil {
         return "", err
@@ -46,6 +47,7 @@ func (t *JwtMaker) CreateToken(payload PayloadInterface, secretKey string) (stri
     return token.SignedString([]byte(secretKey))
 }
 
+// VerifyToken verifies the JWT token
 func (t *JwtMaker) VerifyToken(
     tokenString,
     secretKey string,

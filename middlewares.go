@@ -2,6 +2,7 @@ package common
 
 import (
     "bytes"
+    "context"
     "crypto/hmac"
     "errors"
     "net/http"
@@ -18,9 +19,9 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(
             func(w http.ResponseWriter, r *http.Request) {
-                w.Header().Set("Content-Type", "application/json")
+                w.Header().Set(ContentType, ApplicationJSON)
 
-                providedSignature := r.Header.Get("X-Signature")
+                providedSignature := r.Header.Get(XSignature)
 
                 params := r.URL.Query()
 
@@ -35,6 +36,8 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
                     }
                     return
                 }
+
+                r = r.WithContext(context.WithValue(r.Context(), Body, buf.Bytes()))
 
                 if len(params) == 0 && buf.String() == "" && providedSignature == "" {
                     next.ServeHTTP(w, r)
@@ -60,6 +63,7 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
                     }
                     return
                 }
+
                 next.ServeHTTP(w, r)
             },
         )
