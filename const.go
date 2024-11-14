@@ -6,4 +6,5 @@ const (
     ApplicationJSON = "application/json"
     Body            = "body"
     Authorization   = "Authorization"
+    UserContextKey  = "user"
 )
