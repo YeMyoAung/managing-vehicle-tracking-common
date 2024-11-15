@@ -5,6 +5,7 @@ import (
     "context"
     "crypto/hmac"
     "errors"
+    "log"
     "net/http"
     "time"
 
@@ -21,6 +22,7 @@ type CorsConfig struct {
     AllowedHeaders string
 }
 
+// CorsMiddleware adds CORS headers to the response
 func CorsMiddleware(
     config *CorsConfig,
 ) func(http.Handler) http.Handler {
@@ -56,6 +58,7 @@ type RequestLogger interface {
     Println(v ...any)
 }
 
+// LoggingMiddleware logs the request
 func LoggingMiddleware(
     logger RequestLogger,
 ) func(http.Handler) http.Handler {
@@ -126,6 +129,76 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
                     }
                     return
                 }
+
+                next.ServeHTTP(w, r)
+            },
+        )
+    }
+}
+
+// AuthorizationMiddleware is a middleware that verifies the token
+// and sets the result in the context
+func AuthorizationMiddleware[T any](url string) func(http.Handler) http.Handler {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(
+            func(w http.ResponseWriter, r *http.Request) {
+                w.Header().Set(ContentType, ApplicationJSON)
+                request, err := http.NewRequest(
+                    http.MethodGet,
+                    url,
+                    nil,
+                )
+                if err != nil {
+                    w.WriteHeader(http.StatusInternalServerError)
+                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
+                        log.Println("Failed to encode response", err)
+                    }
+                    return
+                }
+
+                token := r.Header.Get(Authorization)
+
+                request.Header.Set(ContentType, ApplicationJSON)
+                request.Header.Set(Authorization, token)
+
+                res, err := http.DefaultClient.Do(request)
+                if err != nil {
+                    w.WriteHeader(http.StatusInternalServerError)
+                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
+                        log.Println("Failed to encode response", err)
+                    }
+                    return
+                }
+
+                if res.StatusCode != http.StatusOK {
+                    w.WriteHeader(res.StatusCode)
+                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(errors.New("unauthorized"))); err != nil {
+                        log.Println("Failed to encode response", err)
+                    }
+                    return
+                }
+
+                buf := new(bytes.Buffer)
+
+                if _, err = buf.ReadFrom(res.Body); err != nil {
+                    w.WriteHeader(http.StatusBadRequest)
+                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
+                        log.Println("Failed to encode response", err)
+                    }
+                    return
+                }
+
+                var user T
+
+                if err = json.Unmarshal(buf.Bytes(), &user); err != nil {
+                    w.WriteHeader(http.StatusBadRequest)
+                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
+                        log.Println("Failed to encode response", err)
+                    }
+                    return
+                }
+
+                r = r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
 
                 next.ServeHTTP(w, r)
             },
