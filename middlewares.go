@@ -5,6 +5,7 @@ import (
     "context"
     "crypto/hmac"
     "errors"
+    "io"
     "log"
     "net/http"
     "time"
@@ -15,6 +16,14 @@ import (
 var (
     ErrSignatureMismatch = errors.New("signature mismatch")
 )
+
+// handleError is a helper function to handle error responses
+func handleError(statusCode int, w http.ResponseWriter, err error) {
+    w.WriteHeader(statusCode)
+    if err := json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
+        log.Println("Failed to encode error response", err)
+    }
+}
 
 type CorsConfig struct {
     AllowedOrigins string
@@ -85,43 +94,46 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
             func(w http.ResponseWriter, r *http.Request) {
                 w.Header().Set(ContentType, ApplicationJSON)
 
+                // Get signature from the header
                 providedSignature := r.Header.Get(XSignature)
 
+                if providedSignature == "" {
+                    handleError(http.StatusBadRequest, w, ErrSignatureMismatch)
+                    return
+                }
+
                 params := r.URL.Query()
+
+                defer func(Body io.ReadCloser) {
+                    err := Body.Close()
+                    if err != nil {
+                        log.Println("Error closing request body", err)
+                    }
+                }(r.Body)
 
                 buf := new(bytes.Buffer)
 
                 _, err := buf.ReadFrom(r.Body)
                 if err != nil {
-                    w.WriteHeader(http.StatusUnprocessableEntity)
-                    err := json.NewEncoder(w).Encode(DefaultErrorResponse(err))
-                    if err != nil {
-                        return
-                    }
+                    handleError(http.StatusUnprocessableEntity, w, err)
                     return
                 }
 
                 body := buf.Bytes()
 
+                // Since the body is read, we can't read it again
+                // So we put it back in the request
                 r = r.WithContext(context.WithValue(r.Context(), Body, body))
 
                 expectedSignature, err := GenerateSignature(r.Method, r.URL.Path, params, body, signatureKey)
 
                 if err != nil {
-                    w.WriteHeader(http.StatusUnprocessableEntity)
-                    err := json.NewEncoder(w).Encode(DefaultErrorResponse(err))
-                    if err != nil {
-                        return
-                    }
+                    handleError(http.StatusUnprocessableEntity, w, err)
                     return
                 }
 
                 if !hmac.Equal([]byte(providedSignature), []byte(expectedSignature)) {
-                    w.WriteHeader(http.StatusBadRequest)
-                    err := json.NewEncoder(w).Encode(DefaultErrorResponse(ErrSignatureMismatch))
-                    if err != nil {
-                        return
-                    }
+                    handleError(http.StatusBadRequest, w, ErrSignatureMismatch)
                     return
                 }
 
@@ -133,76 +145,68 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
 
 // AuthorizationMiddleware is a middleware that verifies the token
 // and sets the result in the context
-func AuthorizationMiddleware[T any](url string) func(http.Handler) http.Handler {
+func AuthorizationMiddleware[T any](url, signatureKey string) func(http.Handler) http.Handler {
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(
             func(w http.ResponseWriter, r *http.Request) {
                 w.Header().Set(ContentType, ApplicationJSON)
-                request, err := http.NewRequest(
-                    http.MethodGet,
-                    url,
-                    nil,
-                )
+
+                // Prepare the request to validate the token
+                request, err := http.NewRequest(http.MethodGet, url, nil)
                 if err != nil {
-                    w.WriteHeader(http.StatusInternalServerError)
-                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
-                        log.Println("Failed to encode response", err)
-                    }
+                    handleError(http.StatusInternalServerError, w, err)
                     return
                 }
 
+                // Add authorization header to the request 
                 token := r.Header.Get(Authorization)
-
                 request.Header.Set(ContentType, ApplicationJSON)
                 request.Header.Set(Authorization, token)
-                sign, err := GenerateSignature(request.Method, request.URL.Path, nil, nil, token)
+
+                // Sign the request 
+                sign, err := GenerateSignature(request.Method, request.URL.Path, nil, nil, signatureKey)
                 if err != nil {
-                    w.WriteHeader(http.StatusInternalServerError)
-                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
-                        log.Println("Failed to encode response", err)
-                    }
+                    handleError(http.StatusInternalServerError, w, err)
                     return
                 }
-
                 request.Header.Set(XSignature, sign)
 
+                // Send the request
                 res, err := http.DefaultClient.Do(request)
                 if err != nil {
-                    w.WriteHeader(http.StatusInternalServerError)
-                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
-                        log.Println("Failed to encode response", err)
-                    }
+                    handleError(http.StatusInternalServerError, w, err)
                     return
                 }
-
-                if res.StatusCode != http.StatusOK {
-                    w.WriteHeader(res.StatusCode)
-                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(errors.New("unauthorized"))); err != nil {
-                        log.Println("Failed to encode response", err)
+                defer func(Body io.ReadCloser) {
+                    err := Body.Close()
+                    if err != nil {
+                        log.Println("Error closing response body", err)
                     }
-                    return
-                }
+                }(res.Body)
 
                 buf := new(bytes.Buffer)
-
                 if _, err = buf.ReadFrom(res.Body); err != nil {
-                    w.WriteHeader(http.StatusBadRequest)
-                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
+                    handleError(http.StatusInternalServerError, w, err)
+                    return
+                }
+
+                // If the status code is not OK, return the response 
+                if res.StatusCode != http.StatusOK {
+                    w.WriteHeader(res.StatusCode)
+                    if err = json.NewEncoder(w).Encode(buf.Bytes()); err != nil {
                         log.Println("Failed to encode response", err)
                     }
                     return
                 }
 
+                // Unmarshal the response into user struct
                 var user T
-
                 if err = json.Unmarshal(buf.Bytes(), &user); err != nil {
-                    w.WriteHeader(http.StatusBadRequest)
-                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
-                        log.Println("Failed to encode response", err)
-                    }
+                    handleError(http.StatusInternalServerError, w, err)
                     return
                 }
 
+                // Add user data to context
                 r = r.WithContext(context.WithValue(r.Context(), UserContextKey, &user))
 
                 next.ServeHTTP(w, r)
