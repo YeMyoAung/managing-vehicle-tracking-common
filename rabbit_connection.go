@@ -6,8 +6,8 @@ import (
     amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// RabbitConnection is a rabbitmq connection client
-// and it is thread safe, so we can use it in multiple goroutines
+// RabbitConnection is a RabbitMQ connection client
+// and it is thread-safe, so we can use it in multiple goroutines
 type RabbitConnection struct {
     sync.Mutex
 
@@ -16,70 +16,81 @@ type RabbitConnection struct {
     channel *amqp.Channel
 }
 
+// NewRabbitConnection creates a new RabbitConnection
 func NewRabbitConnection(connStr string) *RabbitConnection {
     return &RabbitConnection{connStr: connStr}
 }
 
+// connect establishes a new connection to RabbitMQ
 func (a *RabbitConnection) connect() error {
-    var err error
-    a.conn = nil
-    a.conn, err = amqp.Dial(a.connStr)
-    if err != nil {
-        return err
-    }
-    return nil
-}
-
-func (a *RabbitConnection) Channel() (*amqp.Channel, error) {
-    var err error
-    if a.channel != nil {
-        if a.conn.IsClosed() {
-            a.conn = nil
-            a.channel = nil
-            return a.Channel()
-        }
-        return a.channel, nil
-    }
-
     a.Lock()
     defer a.Unlock()
 
-    if a.conn == nil {
-        err = a.connect()
-        if err != nil {
+    var err error
+    if a.conn != nil && !a.conn.IsClosed() {
+        return nil
+    }
+
+    a.conn = nil
+    a.conn, err = amqp.Dial(a.connStr)
+    return err
+}
+
+// Channel returns an active RabbitMQ channel, creating one if necessary
+func (a *RabbitConnection) Channel() (*amqp.Channel, error) {
+    // if the connection is closed, establish a new connection 
+    if a.conn == nil || a.conn.IsClosed() {
+        if err := a.connect(); err != nil {
             return nil, err
         }
     }
 
-    if a.channel == nil {
+    // if the channel is closed, establish a new channel
+    if a.channel == nil || a.channel.IsClosed() {
+        var err error
         a.channel, err = a.conn.Channel()
         if err != nil {
             return nil, err
         }
     }
+
     return a.channel, nil
 }
 
+// Close shuts down the RabbitMQ connection and channel gracefully
 func (a *RabbitConnection) Close() error {
-    errChan := make(chan error, 2)
     var wg sync.WaitGroup
-    wg.Add(2)
+    errChan := make(chan error, 1)
+
+    wg.Add(1)
+
+    // // Close the channel
+    // go func() {
+    //     defer wg.Done()
+    //     if a.channel != nil {
+    //         if a.channel.IsClosed() {
+    //             return
+    //         }
+    //         errChan <- a.channel.Close()
+    //     }
+    // }()
+
+    // Close the connection
     go func() {
         defer wg.Done()
         if a.conn != nil {
+            if a.conn.IsClosed() {
+                return
+            }
             errChan <- a.conn.Close()
         }
     }()
-    go func() {
-        defer wg.Done()
-        if a.channel != nil {
-            errChan <- a.channel.Close()
-        }
-    }()
 
+    // Wait for both goroutines to finish
     wg.Wait()
     close(errChan)
 
+    // Return the first error encountered, if any
     for err := range errChan {
         if err != nil {
             return err

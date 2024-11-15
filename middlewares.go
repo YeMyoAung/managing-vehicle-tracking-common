@@ -17,8 +17,8 @@ var (
     ErrSignatureMismatch = errors.New("signature mismatch")
 )
 
-// handleError is a helper function to handle error responses
-func handleError(statusCode int, w http.ResponseWriter, err error) {
+// HandleError is a helper function to handle error responses
+func HandleError(statusCode int, w http.ResponseWriter, err error) {
     w.WriteHeader(statusCode)
     if err := json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
         log.Println("Failed to encode error response", err)
@@ -98,7 +98,7 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
                 providedSignature := r.Header.Get(XSignature)
 
                 if providedSignature == "" {
-                    handleError(http.StatusBadRequest, w, ErrSignatureMismatch)
+                    HandleError(http.StatusBadRequest, w, ErrSignatureMismatch)
                     return
                 }
 
@@ -115,7 +115,7 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
 
                 _, err := buf.ReadFrom(r.Body)
                 if err != nil {
-                    handleError(http.StatusUnprocessableEntity, w, err)
+                    HandleError(http.StatusUnprocessableEntity, w, err)
                     return
                 }
 
@@ -128,12 +128,12 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
                 expectedSignature, err := GenerateSignature(r.Method, r.URL.Path, params, body, signatureKey)
 
                 if err != nil {
-                    handleError(http.StatusUnprocessableEntity, w, err)
+                    HandleError(http.StatusUnprocessableEntity, w, err)
                     return
                 }
 
                 if !hmac.Equal([]byte(providedSignature), []byte(expectedSignature)) {
-                    handleError(http.StatusBadRequest, w, ErrSignatureMismatch)
+                    HandleError(http.StatusBadRequest, w, ErrSignatureMismatch)
                     return
                 }
 
@@ -154,7 +154,7 @@ func AuthorizationMiddleware[T any](url, signatureKey string) func(http.Handler)
                 // Prepare the request to validate the token
                 request, err := http.NewRequest(http.MethodGet, url, nil)
                 if err != nil {
-                    handleError(http.StatusInternalServerError, w, err)
+                    HandleError(http.StatusInternalServerError, w, err)
                     return
                 }
 
@@ -166,7 +166,7 @@ func AuthorizationMiddleware[T any](url, signatureKey string) func(http.Handler)
                 // Sign the request 
                 sign, err := GenerateSignature(request.Method, request.URL.Path, nil, nil, signatureKey)
                 if err != nil {
-                    handleError(http.StatusInternalServerError, w, err)
+                    HandleError(http.StatusInternalServerError, w, err)
                     return
                 }
                 request.Header.Set(XSignature, sign)
@@ -174,7 +174,7 @@ func AuthorizationMiddleware[T any](url, signatureKey string) func(http.Handler)
                 // Send the request
                 res, err := http.DefaultClient.Do(request)
                 if err != nil {
-                    handleError(http.StatusInternalServerError, w, err)
+                    HandleError(http.StatusInternalServerError, w, err)
                     return
                 }
                 defer func(Body io.ReadCloser) {
@@ -186,14 +186,19 @@ func AuthorizationMiddleware[T any](url, signatureKey string) func(http.Handler)
 
                 buf := new(bytes.Buffer)
                 if _, err = buf.ReadFrom(res.Body); err != nil {
-                    handleError(http.StatusInternalServerError, w, err)
+                    HandleError(http.StatusInternalServerError, w, err)
                     return
                 }
 
                 // If the status code is not OK, return the response 
                 if res.StatusCode != http.StatusOK {
                     w.WriteHeader(res.StatusCode)
-                    if err = json.NewEncoder(w).Encode(buf.Bytes()); err != nil {
+                    var response Response
+                    if err = json.Unmarshal(buf.Bytes(), &response); err != nil {
+                        HandleError(http.StatusInternalServerError, w, err)
+                        return
+                    }
+                    if err = json.NewEncoder(w).Encode(response); err != nil {
                         log.Println("Failed to encode response", err)
                     }
                     return
@@ -202,7 +207,7 @@ func AuthorizationMiddleware[T any](url, signatureKey string) func(http.Handler)
                 // Unmarshal the response into user struct
                 var user T
                 if err = json.Unmarshal(buf.Bytes(), &user); err != nil {
-                    handleError(http.StatusInternalServerError, w, err)
+                    HandleError(http.StatusInternalServerError, w, err)
                     return
                 }
 
