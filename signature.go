@@ -11,8 +11,8 @@ import (
 
 // GenerateSignature generates a signature for the given parameters and body
 func GenerateSignature(method, path string, params url.Values, body []byte, secretKey string) (string, error) {
-    concatenatedString := method + "&" + url.QueryEscape(path) + "&"
-    
+    concatenatedString := strings.ToLower(method) + "&" + url.QueryEscape(path) + "&"
+
     // sort the parameters, if not sorted, the signature will be different
     keys := make([]string, 0, len(params))
     for k := range params {

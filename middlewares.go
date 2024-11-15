@@ -155,6 +155,16 @@ func AuthorizationMiddleware[T any](url string) func(http.Handler) http.Handler 
 
                 request.Header.Set(ContentType, ApplicationJSON)
                 request.Header.Set(Authorization, token)
+                sign, err := GenerateSignature(request.Method, request.URL.Path, nil, nil, token)
+                if err != nil {
+                    w.WriteHeader(http.StatusInternalServerError)
+                    if err = json.NewEncoder(w).Encode(DefaultErrorResponse(err)); err != nil {
+                        log.Println("Failed to encode response", err)
+                    }
+                    return
+                }
+
+                request.Header.Set(XSignature, sign)
 
                 res, err := http.DefaultClient.Do(request)
                 if err != nil {
