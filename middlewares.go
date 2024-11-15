@@ -198,7 +198,7 @@ func AuthorizationMiddleware[T any](url string) func(http.Handler) http.Handler 
                     return
                 }
 
-                r = r.WithContext(context.WithValue(r.Context(), UserContextKey, user))
+                r = r.WithContext(context.WithValue(r.Context(), UserContextKey, &user))
 
                 next.ServeHTTP(w, r)
             },
