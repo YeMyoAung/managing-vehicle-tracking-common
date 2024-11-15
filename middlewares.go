@@ -105,12 +105,7 @@ func VerifySignatureMiddleware(signatureKey string) func(http.Handler) http.Hand
 
                 r = r.WithContext(context.WithValue(r.Context(), Body, body))
 
-                if len(params) == 0 && buf.String() == "" && providedSignature == "" {
-                    next.ServeHTTP(w, r)
-                    return
-                }
-
-                expectedSignature, err := GenerateSignature(params, body, signatureKey)
+                expectedSignature, err := GenerateSignature(r.Method, r.URL.Path, params, body, signatureKey)
 
                 if err != nil {
                     w.WriteHeader(http.StatusUnprocessableEntity)

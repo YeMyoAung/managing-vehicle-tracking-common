@@ -10,7 +10,9 @@ import (
 )
 
 // GenerateSignature generates a signature for the given parameters and body
-func GenerateSignature(params url.Values, body []byte, secretKey string) (string, error) {
+func GenerateSignature(method, path string, params url.Values, body []byte, secretKey string) (string, error) {
+    concatenatedString := method + "&" + url.QueryEscape(path) + "&"
+    
     // sort the parameters, if not sorted, the signature will be different
     keys := make([]string, 0, len(params))
     for k := range params {
@@ -19,7 +21,6 @@ func GenerateSignature(params url.Values, body []byte, secretKey string) (string
     sort.Strings(keys)
 
     // concatenate the parameters and body
-    var concatenatedString string
     for _, k := range keys {
         concatenatedString += k + "=" + params.Get(k) + "&"
     }

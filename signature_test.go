@@ -1,16 +1,21 @@
 package common
 
 import (
+    "net/http"
     "net/url"
     "testing"
 )
+
+var method = http.MethodPost
+
+const path = "/"
 
 func TestGenerateSignature_WithoutBody(t *testing.T) {
     params := url.Values{}
     params.Add("key", "value")
     var body []byte
 
-    signature1, err := GenerateSignature(params, body, secretKey)
+    signature1, err := GenerateSignature(method, path, params, body, secretKey)
     if err != nil {
         return
     }
@@ -19,7 +24,7 @@ func TestGenerateSignature_WithoutBody(t *testing.T) {
         t.Errorf("Signature is empty")
     }
 
-    signature2, err := GenerateSignature(params, body, secretKey)
+    signature2, err := GenerateSignature(method, path, params, body, secretKey)
 
     if signature1 != signature2 {
         t.Errorf("Signatures are not equal")
@@ -35,7 +40,7 @@ func TestGenerateSignature_WithoutParam(t *testing.T) {
         "\"key\": \"value\"" +
         "}")
 
-    signature1, err := GenerateSignature(params, body1, secretKey)
+    signature1, err := GenerateSignature(method, path, params, body1, secretKey)
     if err != nil {
         return
     }
@@ -44,7 +49,7 @@ func TestGenerateSignature_WithoutParam(t *testing.T) {
         t.Errorf("Signature is empty")
     }
 
-    signature2, err := GenerateSignature(params, body2, secretKey)
+    signature2, err := GenerateSignature(method, path, params, body2, secretKey)
 
     if signature1 != signature2 {
         t.Errorf("Signatures are not equal")
@@ -59,7 +64,7 @@ func TestGenerateSignature(t *testing.T) {
         "\"key\": \"value\"" +
         "}")
 
-    signature1, err := GenerateSignature(params, body1, secretKey)
+    signature1, err := GenerateSignature(method, path, params, body1, secretKey)
     if err != nil {
         return
     }
@@ -68,7 +73,7 @@ func TestGenerateSignature(t *testing.T) {
         t.Errorf("Signature is empty")
     }
 
-    signature2, err := GenerateSignature(params, body2, secretKey)
+    signature2, err := GenerateSignature(method, path, params, body2, secretKey)
 
     if signature1 != signature2 {
         t.Errorf("Signatures are not equal")
